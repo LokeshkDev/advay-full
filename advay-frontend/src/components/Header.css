@@ -1,0 +1,38 @@
+.header {
+  background-color: #fff;
+  border-bottom: 1px solid #ddd;
+  padding: 10px 20px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.header-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.logo img {
+  height: 100px;
+}
+
+.nav-menu{
+  margin-right: 50%;    
+}
+
+.nav-menu a  {
+  margin: 0 10px;
+  text-decoration: none;
+  color:  #2c2c85;
+  font-weight: 600;
+  font-size: 24px;
+}
+
+.nav-menu a:hover {
+  color: #a5d6a7;
+}
+
+

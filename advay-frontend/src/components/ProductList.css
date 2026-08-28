@@ -1,0 +1,197 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+
+.product-table-container {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.title {
+  text-align: center;
+  font-size: 2rem;
+  margin-bottom: 1rem;
+  color: #2c2c85;
+}
+
+.product-table {
+  background-color: #ffffff;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.15);
+  width: 100%;
+  max-width: 1650px;
+  overflow-x: auto;
+}
+
+.product-table th,
+.product-table td {
+  padding: 12px;
+  border: 1px solid #a5d6a7;
+  vertical-align: middle;
+
+}
+
+.product-table th {
+  background-color: #f1f8e9;
+  color: #2c2c85;
+  border-collapse: collapse;
+}
+
+.category-row {
+  background-color: #81c784;
+  font-weight: bold;
+  color: white;
+  text-align: center;
+  font-size: 1rem;
+
+}
+
+.product-img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 4px;
+  margin: 0 auto;
+}
+
+.original-price {
+  background-color: gold;
+  color: #000;
+  padding: 4px 8px;
+  margin-right: 6px;
+  border-radius: 999px;
+  font-weight: bold;
+  text-decoration: line-through;
+  display: inline-block;
+  font-size: 0.9rem;
+}
+
+.discounted-price {
+  background-color: rgb(12, 188, 18);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-weight: bold;
+  display: inline-block;
+  font-size: 0.9rem;
+}
+
+
+.qty-input {
+  width: 60px;
+  padding: 6px;
+  text-align: center;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+.add-btn {
+  background-color: #2c2c85;
+  color: white;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: 0.2s;
+}
+
+.add-btn:hover {
+  background-color: #1b1b5f;
+}
+
+.no-products {
+  text-align: center;
+  margin-top: 2rem;
+  font-weight: bold;
+}
+
+@media only screen and (max-width: 767px) {
+  .product-table-container {
+    display: block;
+    padding: 16px 4px;
+  }
+
+  .category-row {
+    display: table-cell !important;
+  }
+
+  .product-table th:first-child,
+  .product-table td:nth-child(1) {
+    display: none;
+  }
+
+  .product-table th,
+  .product-table td {
+    padding: 1px;
+    font-size: 14px;
+    text-align: center;
+  }
+
+  .product-img {
+    width: 50px;
+    height: 50px;
+  }
+
+  .original-price {
+    background-color: transparent;
+  }
+
+  .discounted-price {
+    padding: 0px 5px;
+    font-size: 14px;
+  }
+
+  .add-btn {
+    padding: 1px 14px;
+    font-size: 14px;
+  }
+}
+
+/* Popup Overlay Styles */
+.popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.popup-content {
+  background: #fff;
+  padding: 30px 40px;
+  border-radius: 10px;
+  text-align: center;
+  max-width: 500px;
+  color: #222;
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+  animation: popIn 0.5s ease;
+}
+
+.popup-content h2 {
+  color: #d9534f;
+  margin-bottom: 15px;
+}
+
+.popup-content p {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+@keyframes popIn {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
