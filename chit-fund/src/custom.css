@@ -1,0 +1,70 @@
+body {
+  background-color: #fffdf5;
+}
+
+.sidebar a.nav-link.active {
+  background-color: #ffc107 !important;
+  color: #000 !important;
+}
+
+.navbar-light {
+  background-color: #fef3c7 !important;
+}
+
+.card {
+  border-radius: 15px;
+}
+.table th {
+  font-weight: 600;
+  background-color: #fff8e1;
+}
+
+.modal-header {
+  border-bottom: 2px solid #ffd700;
+}
+.table th {
+  font-weight: 600;
+  background-color: #fff8e1;
+}
+
+.modal-header {
+  border-bottom: 2px solid #ffd700;
+}
+
+.btn-outline-primary:hover {
+  background-color: #0d6efd;
+  color: #fff;
+}
+.table th {
+  background-color: #fff8e1;
+  font-weight: 600;
+  text-align: center;
+}
+
+.table td {
+  vertical-align: middle;
+}
+
+.badge {
+  min-width: 70px;
+  padding: 8px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.card h3 {
+  font-size: 1.8rem;
+}
+
+.table th {
+  background-color: #fff8e1;
+  font-weight: 600;
+}
+
+.table td {
+  vertical-align: middle;
+}
+.nav-link.active {
+  font-weight: 600;
+  color: #0d6efd !important;
+  border-bottom: 2px solid #0d6efd;
+}
