@@ -2,13 +2,29 @@ import express from "express";
 import dotenv from "dotenv";
 import Customer from "../models/Customer.js";
 import Enquiry from "../models/Enquiry.js";
-import { sendEnquiryEmails } from "../utils/email.js";
+import { sendEnquiryEmails, verifyEmailConnection } from "../utils/email.js";
 
 dotenv.config();
 
 const router = express.Router();
 
 console.log("✅ enquiry.js route file loaded");
+
+// 🔍 Test Email Connection in Production
+router.get("/test-email", async (req, res) => {
+  try {
+    const isConfigured = Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+    const verified = await verifyEmailConnection();
+    res.json({
+      configured: isConfigured,
+      emailUser: process.env.EMAIL_USER ? process.env.EMAIL_USER.replace(/(.{3}).*(@.*)/, "$1***$2") : "Not set",
+      smtpVerified: verified,
+      message: verified ? "SMTP Connection Successful!" : "SMTP Connection Failed. Check EMAIL_USER and EMAIL_PASS (Gmail App Password)."
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 router.post("/", async (req, res) => {
   if (!req.body) {

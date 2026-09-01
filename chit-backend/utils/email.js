@@ -3,11 +3,16 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true, // SSL
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
+  connectionTimeout: 10000, // 10 seconds
+  greetingTimeout: 5000,
+  socketTimeout: 10000,
 });
 
 // Brand assets – logo theme colors matched to PDF/website (Navy #1B365D, Gold #E58E26)
@@ -210,12 +215,30 @@ export const sendEnquiryEmails = async (data) => {
   };
 
   try {
-    await Promise.all([
+    const results = await Promise.allSettled([
       transporter.sendMail(adminMailOptions),
-      transporter.sendMail(customerMailOptions),
+      customer.email ? transporter.sendMail(customerMailOptions) : Promise.resolve(null),
     ]);
-    console.log("✅ Enquiry emails sent successfully to admin and customer");
-    return { success: true };
+
+    const adminResult = results[0];
+    const customerResult = results[1];
+
+    if (adminResult.status === "fulfilled") {
+      console.log("✅ Admin notification email sent successfully");
+    } else {
+      console.error("❌ Admin email failed:", adminResult.reason);
+    }
+
+    if (customerResult.status === "fulfilled") {
+      console.log("✅ Customer confirmation email sent successfully");
+    } else {
+      console.error("❌ Customer email failed:", customerResult.reason);
+    }
+
+    return {
+      adminSent: adminResult.status === "fulfilled",
+      customerSent: customerResult.status === "fulfilled",
+    };
   } catch (error) {
     console.error("❌ Failed to send enquiry emails:", error);
     throw error;
