@@ -101,11 +101,11 @@ export default function Orders() {
 
         // Header Document Badge (Right Side)
         doc.setFillColor(navyColor[0], navyColor[1], navyColor[2]);
-        doc.roundedRect(145, 12, 51, 12, 2, 2, "F");
+        doc.roundedRect(142, 12, 54, 12, 2, 2, "F");
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
+        doc.setFontSize(10.5);
         doc.setTextColor(255, 255, 255);
-        doc.text("TAX INVOICE", 153, 20);
+        doc.text("ORDER RECEIPT", 146, 20);
 
         // Decorative Accent Lines
         doc.setDrawColor(navyColor[0], navyColor[1], navyColor[2]);
@@ -253,7 +253,7 @@ export default function Orders() {
         doc.setFontSize(9);
         doc.setTextColor(mutedTextColor[0], mutedTextColor[1], mutedTextColor[2]);
         doc.text("Thank you for choosing Advay Traders!", 14, bottomY);
-        doc.text("For support, inquiries or questions regarding this invoice, please reach out to us.", 14, bottomY + 5);
+        doc.text("For support, inquiries or questions regarding this order, please reach out to us.", 14, bottomY + 5);
 
         // Authorized Signature
         doc.setDrawColor(mutedTextColor[0], mutedTextColor[1], mutedTextColor[2]);

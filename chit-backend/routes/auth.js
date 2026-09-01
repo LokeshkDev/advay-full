@@ -5,6 +5,7 @@ import User from "../models/User.js";
 
 const router = express.Router();
 
+
 /* LOGIN */
 router.post("/login", async (req, res) => {
   try {
@@ -13,17 +14,24 @@ router.post("/login", async (req, res) => {
     if (!username || !password)
       return res.status(400).json({ message: "All fields required" });
 
-    const user = await User.findOne({ username });
+    const cleanUsername = username.trim();
+    const cleanPassword = password.trim();
+
+    // Case-insensitive username lookup
+    const user = await User.findOne({
+      username: { $regex: new RegExp(`^${cleanUsername}$`, "i") }
+    });
+
     if (!user)
       return res.status(401).json({ message: "Invalid username or password" });
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    const isMatch = await bcrypt.compare(cleanPassword, user.password);
     if (!isMatch)
       return res.status(401).json({ message: "Invalid username or password" });
 
     const token = jwt.sign(
       { id: user._id },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || "default_jwt_secret_advay",
       { expiresIn: "1d" }
     );
 
