@@ -21,7 +21,27 @@ export default function Products() {
 
     // Selection State
     const [selectedProducts, setSelectedProducts] = useState([]);
-    const [selectAll, setSelectAll] = useState(false);
+
+    // Accordion State (Collapsed by default: empty object)
+    const [expandedCategories, setExpandedCategories] = useState({});
+
+    const toggleCategoryAccordion = (catId) => {
+        setExpandedCategories(prev => ({
+            ...prev,
+            [catId]: !prev[catId]
+        }));
+    };
+
+    const expandAllCategories = () => {
+        const all = {};
+        categories.forEach(c => { all[c._id] = true; });
+        all["uncategorized"] = true;
+        setExpandedCategories(all);
+    };
+
+    const collapseAllCategories = () => {
+        setExpandedCategories({});
+    };
 
     // Form State
     const [editId, setEditId] = useState(null);
@@ -64,7 +84,6 @@ export default function Products() {
             const res = await api.get(`/products?${params.toString()}`);
             setProducts(res.data);
             setSelectedProducts([]);
-            setSelectAll(false);
         } catch (err) {
             console.error(err);
         }
@@ -306,15 +325,6 @@ export default function Products() {
     };
 
     // Selection handlers
-    const handleSelectAll = () => {
-        if (selectAll) {
-            setSelectedProducts([]);
-        } else {
-            setSelectedProducts(products.map(p => p._id));
-        }
-        setSelectAll(!selectAll);
-    };
-
     const handleSelectProduct = (id) => {
         if (selectedProducts.includes(id)) {
             setSelectedProducts(selectedProducts.filter(pid => pid !== id));
@@ -334,7 +344,6 @@ export default function Products() {
                 await api.post("/products/bulk-delete", { ids: selectedProducts });
                 fetchProducts();
                 setSelectedProducts([]);
-                setSelectAll(false);
             } catch (err) {
                 console.error(err);
             }
@@ -350,7 +359,6 @@ export default function Products() {
             await api.post("/products/bulk-status", { ids: selectedProducts, isActive: status });
             fetchProducts();
             setSelectedProducts([]);
-            setSelectAll(false);
         } catch (err) {
             console.error(err);
         }
@@ -540,17 +548,49 @@ export default function Products() {
                 </div>
             )}
 
-            {/* CATEGORY-WISE PRODUCT SECTIONS */}
+            {/* Category Accordion Header & Expand/Collapse Controls */}
+            <div className="d-flex justify-content-between align-items-center mb-3 px-1">
+                <div className="text-muted small">
+                    Showing <strong>{displayedCategories.length}</strong> Categories ({products.length} Products Total)
+                </div>
+                <div className="btn-group btn-group-sm">
+                    <button
+                        type="button"
+                        className="btn btn-outline-secondary btn-sm"
+                        onClick={expandAllCategories}
+                        title="Expand all category accordions"
+                    >
+                        <i className="bi bi-arrows-expand me-1"></i> Expand All
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-outline-secondary btn-sm"
+                        onClick={collapseAllCategories}
+                        title="Collapse all category accordions"
+                    >
+                        <i className="bi bi-arrows-collapse me-1"></i> Collapse All
+                    </button>
+                </div>
+            </div>
+
+            {/* CATEGORY-WISE ACCORDION SECTIONS */}
             {displayedCategories.map((cat, catIdx) => {
                 const catProducts = products
                     .filter(p => (p.category?._id || p.category) === cat._id)
                     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
+                const isExpanded = Boolean(expandedCategories[cat._id]);
+
                 return (
-                    <div key={cat._id} className="card shadow-sm border-0 mb-4 overflow-hidden">
-                        {/* Category Header with Reorder Arrows */}
-                        <div className="card-header d-flex justify-content-between align-items-center py-2 px-3" style={{ backgroundColor: "#1B365D", color: "#ffffff" }}>
+                    <div key={cat._id} className="card shadow-sm border-0 mb-3 overflow-hidden">
+                        {/* Category Header with Reorder Arrows & Collapse Toggle */}
+                        <div
+                            className="card-header d-flex justify-content-between align-items-center py-2 px-3 user-select-none"
+                            style={{ backgroundColor: "#1B365D", color: "#ffffff", cursor: "pointer" }}
+                            onClick={() => toggleCategoryAccordion(cat._id)}
+                        >
                             <div className="d-flex align-items-center gap-2">
+                                <i className={`bi ${isExpanded ? "bi-chevron-down" : "bi-chevron-right"} text-warning fw-bold fs-6`}></i>
                                 <span className="badge bg-warning text-dark fw-bold px-2 py-1">
                                     #{catIdx + 1}
                                 </span>
@@ -562,14 +602,14 @@ export default function Products() {
                                 </span>
                             </div>
 
-                            <div className="d-flex align-items-center gap-2">
+                            <div className="d-flex align-items-center gap-2" onClick={(e) => e.stopPropagation()}>
                                 <div className="btn-group btn-group-sm" role="group" aria-label="Category Order">
                                     <button
                                         type="button"
                                         className="btn btn-outline-light btn-sm py-0 px-2"
                                         title="Move Category UP"
                                         disabled={categories.findIndex(c => c._id === cat._id) <= 0}
-                                        onClick={() => moveCategory(cat._id, "up")}
+                                        onClick={(e) => { e.stopPropagation(); moveCategory(cat._id, "up"); }}
                                     >
                                         <i className="bi bi-arrow-up-circle-fill"></i> UP
                                     </button>
@@ -578,7 +618,7 @@ export default function Products() {
                                         className="btn btn-outline-light btn-sm py-0 px-2"
                                         title="Move Category DOWN"
                                         disabled={categories.findIndex(c => c._id === cat._id) >= categories.length - 1}
-                                        onClick={() => moveCategory(cat._id, "down")}
+                                        onClick={(e) => { e.stopPropagation(); moveCategory(cat._id, "down"); }}
                                     >
                                         <i className="bi bi-arrow-down-circle-fill"></i> DOWN
                                     </button>
@@ -586,7 +626,7 @@ export default function Products() {
 
                                 <button
                                     className="btn btn-warning btn-sm py-0 px-2 text-dark fw-semibold"
-                                    onClick={() => openProductModal(cat._id)}
+                                    onClick={(e) => { e.stopPropagation(); openProductModal(cat._id); }}
                                     title={`Add product under ${cat.name}`}
                                 >
                                     <i className="bi bi-plus-lg"></i> Add
@@ -594,129 +634,131 @@ export default function Products() {
                             </div>
                         </div>
 
-                        {/* Category Products Table */}
-                        <div className="card-body p-0">
-                            <div className="table-responsive">
-                                <table className="table table-hover align-middle mb-0">
-                                    <thead className="table-light text-secondary small text-uppercase" style={{ backgroundColor: "#fff8e1" }}>
-                                        <tr>
-                                            <th className="ps-3" style={{ width: "40px" }}>
-                                                <input
-                                                    type="checkbox"
-                                                    className="form-check-input"
-                                                    checked={catProducts.length > 0 && catProducts.every(p => selectedProducts.includes(p._id))}
-                                                    onChange={() => {
-                                                        const catIds = catProducts.map(p => p._id);
-                                                        const allSelected = catIds.every(id => selectedProducts.includes(id));
-                                                        if (allSelected) {
-                                                            setSelectedProducts(selectedProducts.filter(id => !catIds.includes(id)));
-                                                        } else {
-                                                            setSelectedProducts([...new Set([...selectedProducts, ...catIds])]);
-                                                        }
-                                                    }}
-                                                />
-                                            </th>
-                                            <th style={{ width: "70px" }}>Order</th>
-                                            <th style={{ width: "80px" }}>Image</th>
-                                            <th>Product Name</th>
-                                            <th style={{ width: "160px" }}>Price (Original / Offer)</th>
-                                            <th style={{ width: "140px" }}>Status</th>
-                                            <th className="text-center" style={{ width: "130px" }}>Reorder Product</th>
-                                            <th className="text-center" style={{ width: "100px" }}>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {catProducts.length === 0 ? (
+                        {/* Category Products Table (Shown only when expanded) */}
+                        {isExpanded && (
+                            <div className="card-body p-0 border-top">
+                                <div className="table-responsive">
+                                    <table className="table table-hover align-middle mb-0">
+                                        <thead className="table-light text-secondary small text-uppercase" style={{ backgroundColor: "#fff8e1" }}>
                                             <tr>
-                                                <td colSpan="8" className="text-center py-4 text-muted small">
-                                                    No products found in this category. Click <strong>Add</strong> to add the first product!
-                                                </td>
+                                                <th className="ps-3" style={{ width: "40px" }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="form-check-input"
+                                                        checked={catProducts.length > 0 && catProducts.every(p => selectedProducts.includes(p._id))}
+                                                        onChange={() => {
+                                                            const catIds = catProducts.map(p => p._id);
+                                                            const allSelected = catIds.every(id => selectedProducts.includes(id));
+                                                            if (allSelected) {
+                                                                setSelectedProducts(selectedProducts.filter(id => !catIds.includes(id)));
+                                                            } else {
+                                                                setSelectedProducts([...new Set([...selectedProducts, ...catIds])]);
+                                                            }
+                                                        }}
+                                                    />
+                                                </th>
+                                                <th style={{ width: "70px" }}>Order</th>
+                                                <th style={{ width: "80px" }}>Image</th>
+                                                <th>Product Name</th>
+                                                <th style={{ width: "160px" }}>Price (Original / Offer)</th>
+                                                <th style={{ width: "140px" }}>Status</th>
+                                                <th className="text-center" style={{ width: "130px" }}>Reorder Product</th>
+                                                <th className="text-center" style={{ width: "100px" }}>Actions</th>
                                             </tr>
-                                        ) : (
-                                            catProducts.map((p, pIdx) => (
-                                                <tr key={p._id}>
-                                                    <td className="ps-3">
-                                                        <input
-                                                            type="checkbox"
-                                                            className="form-check-input"
-                                                            checked={selectedProducts.includes(p._id)}
-                                                            onChange={() => handleSelectProduct(p._id)}
-                                                        />
-                                                    </td>
-                                                    <td className="fw-semibold text-muted small">
-                                                        #{pIdx + 1}
-                                                    </td>
-                                                    <td>
-                                                        <img
-                                                            src={getImageUrl(p.image)}
-                                                            alt={p.name}
-                                                            className="rounded border"
-                                                            style={{ width: "45px", height: "45px", objectFit: "cover" }}
-                                                            onError={(e) => {
-                                                                e.target.onerror = null;
-                                                                e.target.src = getImageUrl(null);
-                                                            }}
-                                                        />
-                                                    </td>
-                                                    <td className="fw-semibold text-dark">{p.name}</td>
-                                                    <td>
-                                                        <span className="text-decoration-line-through text-muted small me-2">₹{p.originalPrice}</span>
-                                                        <span className="fw-bold text-success">₹{p.offerPrice}</span>
-                                                    </td>
-                                                    <td>
-                                                        <div className="form-check form-switch d-flex align-items-center gap-2">
-                                                            <input
-                                                                className="form-check-input mt-0"
-                                                                type="checkbox"
-                                                                checked={p.isActive}
-                                                                onChange={() => toggleStatus(p)}
-                                                            />
-                                                            <span className={`badge ${p.isActive ? "bg-success" : "bg-danger"}`}>
-                                                                {p.isActive ? "Active" : "Disabled"}
-                                                            </span>
-                                                        </div>
-                                                    </td>
-
-                                                    {/* Product Move UP / DOWN Buttons */}
-                                                    <td className="text-center">
-                                                        <div className="btn-group btn-group-sm">
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-outline-secondary btn-sm"
-                                                                title="Move Product UP"
-                                                                disabled={pIdx === 0}
-                                                                onClick={() => moveProduct(cat._id, p._id, "up")}
-                                                            >
-                                                                <i className="bi bi-chevron-up"></i>
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-outline-secondary btn-sm"
-                                                                title="Move Product DOWN"
-                                                                disabled={pIdx === catProducts.length - 1}
-                                                                onClick={() => moveProduct(cat._id, p._id, "down")}
-                                                            >
-                                                                <i className="bi bi-chevron-down"></i>
-                                                            </button>
-                                                        </div>
-                                                    </td>
-
-                                                    {/* Edit & Delete Actions */}
-                                                    <td className="text-center text-nowrap">
-                                                        <button className="btn btn-sm btn-link text-primary p-0 me-2" onClick={() => handleEdit(p)} title="Edit Product">
-                                                            <i className="bi bi-pencil-square fs-5"></i>
-                                                        </button>
-                                                        <button className="btn btn-sm btn-link text-danger p-0" onClick={() => handleDelete(p._id)} title="Delete Product">
-                                                            <i className="bi bi-trash-fill fs-5"></i>
-                                                        </button>
+                                        </thead>
+                                        <tbody>
+                                            {catProducts.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan="8" className="text-center py-4 text-muted small">
+                                                        No products found in this category. Click <strong>Add</strong> to add the first product!
                                                     </td>
                                                 </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
+                                            ) : (
+                                                catProducts.map((p, pIdx) => (
+                                                    <tr key={p._id}>
+                                                        <td className="ps-3">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="form-check-input"
+                                                                checked={selectedProducts.includes(p._id)}
+                                                                onChange={() => handleSelectProduct(p._id)}
+                                                            />
+                                                        </td>
+                                                        <td className="fw-semibold text-muted small">
+                                                            #{pIdx + 1}
+                                                        </td>
+                                                        <td>
+                                                            <img
+                                                                src={getImageUrl(p.image)}
+                                                                alt={p.name}
+                                                                className="rounded border"
+                                                                style={{ width: "45px", height: "45px", objectFit: "cover" }}
+                                                                onError={(e) => {
+                                                                    e.target.onerror = null;
+                                                                    e.target.src = getImageUrl(null);
+                                                                }}
+                                                            />
+                                                        </td>
+                                                        <td className="fw-semibold text-dark">{p.name}</td>
+                                                        <td>
+                                                            <span className="text-decoration-line-through text-muted small me-2">₹{p.originalPrice}</span>
+                                                            <span className="fw-bold text-success">₹{p.offerPrice}</span>
+                                                        </td>
+                                                        <td>
+                                                            <div className="form-check form-switch d-flex align-items-center gap-2">
+                                                                <input
+                                                                    className="form-check-input mt-0"
+                                                                    type="checkbox"
+                                                                    checked={p.isActive}
+                                                                    onChange={() => toggleStatus(p)}
+                                                                />
+                                                                <span className={`badge ${p.isActive ? "bg-success" : "bg-danger"}`}>
+                                                                    {p.isActive ? "Active" : "Disabled"}
+                                                                </span>
+                                                            </div>
+                                                        </td>
+
+                                                        {/* Product Move UP / DOWN Buttons */}
+                                                        <td className="text-center">
+                                                            <div className="btn-group btn-group-sm">
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-outline-secondary btn-sm"
+                                                                    title="Move Product UP"
+                                                                    disabled={pIdx === 0}
+                                                                    onClick={() => moveProduct(cat._id, p._id, "up")}
+                                                                >
+                                                                    <i className="bi bi-chevron-up"></i>
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-outline-secondary btn-sm"
+                                                                    title="Move Product DOWN"
+                                                                    disabled={pIdx === catProducts.length - 1}
+                                                                    onClick={() => moveProduct(cat._id, p._id, "down")}
+                                                                >
+                                                                    <i className="bi bi-chevron-down"></i>
+                                                                </button>
+                                                            </div>
+                                                        </td>
+
+                                                        {/* Edit & Delete Actions */}
+                                                        <td className="text-center text-nowrap">
+                                                            <button className="btn btn-sm btn-link text-primary p-0 me-2" onClick={() => handleEdit(p)} title="Edit Product">
+                                                                <i className="bi bi-pencil-square fs-5"></i>
+                                                            </button>
+                                                            <button className="btn btn-sm btn-link text-danger p-0" onClick={() => handleDelete(p._id)} title="Delete Product">
+                                                                <i className="bi bi-trash-fill fs-5"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                 );
             })}
@@ -724,56 +766,65 @@ export default function Products() {
             {/* UNCATEGORIZED PRODUCTS IF ANY */}
             {uncategorizedProducts.length > 0 && (
                 <div className="card shadow-sm border-0 mb-4 overflow-hidden">
-                    <div className="card-header bg-secondary text-white py-2 px-3 d-flex justify-content-between align-items-center">
-                        <h6 className="mb-0 fw-bold">Uncategorized Products ({uncategorizedProducts.length})</h6>
-                    </div>
-                    <div className="card-body p-0">
-                        <div className="table-responsive">
-                            <table className="table table-hover align-middle mb-0">
-                                <tbody>
-                                    {uncategorizedProducts.map((p, pIdx) => (
-                                        <tr key={p._id}>
-                                            <td style={{ width: "40px" }} className="ps-3">
-                                                <input
-                                                    type="checkbox"
-                                                    className="form-check-input"
-                                                    checked={selectedProducts.includes(p._id)}
-                                                    onChange={() => handleSelectProduct(p._id)}
-                                                />
-                                            </td>
-                                            <td style={{ width: "70px" }}>#{pIdx + 1}</td>
-                                            <td style={{ width: "80px" }}>
-                                                <img
-                                                    src={getImageUrl(p.image)}
-                                                    alt={p.name}
-                                                    className="rounded border"
-                                                    style={{ width: "45px", height: "45px", objectFit: "cover" }}
-                                                    onError={(e) => {
-                                                        e.target.onerror = null;
-                                                        e.target.src = getImageUrl(null);
-                                                    }}
-                                                />
-                                            </td>
-                                            <td className="fw-semibold">{p.name}</td>
-                                            <td style={{ width: "160px" }}>₹{p.offerPrice}</td>
-                                            <td style={{ width: "140px" }}>
-                                                <span className={`badge ${p.isActive ? "bg-success" : "bg-danger"}`}>{p.isActive ? "Active" : "Disabled"}</span>
-                                            </td>
-                                            <td className="text-center" style={{ width: "130px" }}>—</td>
-                                            <td className="text-center text-nowrap" style={{ width: "100px" }}>
-                                                <button className="btn btn-sm btn-link text-primary p-0 me-2" onClick={() => handleEdit(p)}>
-                                                    <i className="bi bi-pencil-square fs-5"></i>
-                                                </button>
-                                                <button className="btn btn-sm btn-link text-danger p-0" onClick={() => handleDelete(p._id)}>
-                                                    <i className="bi bi-trash-fill fs-5"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                    <div
+                        className="card-header bg-secondary text-white py-2 px-3 d-flex justify-content-between align-items-center user-select-none"
+                        style={{ cursor: "pointer" }}
+                        onClick={() => toggleCategoryAccordion("uncategorized")}
+                    >
+                        <div className="d-flex align-items-center gap-2">
+                            <i className={`bi ${expandedCategories["uncategorized"] ? "bi-chevron-down" : "bi-chevron-right"} text-white fw-bold fs-6`}></i>
+                            <h6 className="mb-0 fw-bold">Uncategorized Products ({uncategorizedProducts.length})</h6>
                         </div>
                     </div>
+                    {expandedCategories["uncategorized"] && (
+                        <div className="card-body p-0 border-top">
+                            <div className="table-responsive">
+                                <table className="table table-hover align-middle mb-0">
+                                    <tbody>
+                                        {uncategorizedProducts.map((p, pIdx) => (
+                                            <tr key={p._id}>
+                                                <td style={{ width: "40px" }} className="ps-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="form-check-input"
+                                                        checked={selectedProducts.includes(p._id)}
+                                                        onChange={() => handleSelectProduct(p._id)}
+                                                    />
+                                                </td>
+                                                <td style={{ width: "70px" }}>#{pIdx + 1}</td>
+                                                <td style={{ width: "80px" }}>
+                                                    <img
+                                                        src={getImageUrl(p.image)}
+                                                        alt={p.name}
+                                                        className="rounded border"
+                                                        style={{ width: "45px", height: "45px", objectFit: "cover" }}
+                                                        onError={(e) => {
+                                                            e.target.onerror = null;
+                                                            e.target.src = getImageUrl(null);
+                                                        }}
+                                                    />
+                                                </td>
+                                                <td className="fw-semibold">{p.name}</td>
+                                                <td style={{ width: "160px" }}>₹{p.offerPrice}</td>
+                                                <td style={{ width: "140px" }}>
+                                                    <span className={`badge ${p.isActive ? "bg-success" : "bg-danger"}`}>{p.isActive ? "Active" : "Disabled"}</span>
+                                                </td>
+                                                <td className="text-center" style={{ width: "130px" }}>—</td>
+                                                <td className="text-center text-nowrap" style={{ width: "100px" }}>
+                                                    <button className="btn btn-sm btn-link text-primary p-0 me-2" onClick={() => handleEdit(p)}>
+                                                        <i className="bi bi-pencil-square fs-5"></i>
+                                                    </button>
+                                                    <button className="btn btn-sm btn-link text-danger p-0" onClick={() => handleDelete(p._id)}>
+                                                        <i className="bi bi-trash-fill fs-5"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

@@ -1,0 +1,24 @@
+{
+  "files": {
+    "main.css": "/static/css/main.96c99d7b.css",
+    "main.js": "/static/js/main.bfc6af17.js",
+    "static/js/239.9ba3ee26.chunk.js": "/static/js/239.9ba3ee26.chunk.js",
+    "static/js/213.9c316a09.chunk.js": "/static/js/213.9c316a09.chunk.js",
+    "static/js/732.9696c23d.chunk.js": "/static/js/732.9696c23d.chunk.js",
+    "static/js/453.b1eea67a.chunk.js": "/static/js/453.b1eea67a.chunk.js",
+    "static/media/bootstrap-icons.woff?": "/static/media/bootstrap-icons.1295669cd4e305c97f2c.woff",
+    "static/media/bootstrap-icons.woff2?": "/static/media/bootstrap-icons.92ea18a81d737146ff04.woff2",
+    "static/media/Advay-Traders-Logo.png": "/static/media/Advay-Traders-Logo.0384db13d37cccc57c21.png",
+    "index.html": "/index.html",
+    "main.96c99d7b.css.map": "/static/css/main.96c99d7b.css.map",
+    "main.bfc6af17.js.map": "/static/js/main.bfc6af17.js.map",
+    "239.9ba3ee26.chunk.js.map": "/static/js/239.9ba3ee26.chunk.js.map",
+    "213.9c316a09.chunk.js.map": "/static/js/213.9c316a09.chunk.js.map",
+    "732.9696c23d.chunk.js.map": "/static/js/732.9696c23d.chunk.js.map",
+    "453.b1eea67a.chunk.js.map": "/static/js/453.b1eea67a.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.96c99d7b.css",
+    "static/js/main.bfc6af17.js"
+  ]
+}
