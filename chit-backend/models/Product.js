@@ -7,6 +7,7 @@ const ProductSchema = new mongoose.Schema({
     originalPrice: { type: Number, required: true },
     offerPrice: { type: Number, required: true },
     isActive: { type: Boolean, default: true },
+    order: { type: Number, default: 0 },
 }, { timestamps: true });
 
 export default mongoose.model("Product", ProductSchema);

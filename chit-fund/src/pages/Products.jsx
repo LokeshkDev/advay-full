@@ -1,6 +1,13 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Modal } from "bootstrap";
-import { api } from "../api";
+import { api, BACKEND_HOST } from "../api";
+
+const getImageUrl = (imagePath) => {
+    if (!imagePath) return `${BACKEND_HOST}/uploads/AD-preview.png`;
+    if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) return imagePath;
+    const cleanPath = imagePath.startsWith("/") ? imagePath.slice(1) : imagePath;
+    return `${BACKEND_HOST}/${cleanPath}`;
+};
 
 export default function Products() {
     const [products, setProducts] = useState([]);
@@ -41,10 +48,10 @@ export default function Products() {
     // Initialize Bootstrap modals
     useEffect(() => {
         if (productModalRef.current && !productModalInstance.current) {
-            productModalInstance.current = new Modal(productModalRef.current);
+            productModalInstance.current = Modal.getOrCreateInstance(productModalRef.current);
         }
         if (categoryModalRef.current && !categoryModalInstance.current) {
-            categoryModalInstance.current = new Modal(categoryModalRef.current);
+            categoryModalInstance.current = Modal.getOrCreateInstance(categoryModalRef.current);
         }
     }, []);
 
@@ -92,7 +99,7 @@ export default function Products() {
         setEditId(null);
         setFormData({
             name: "",
-            category: "",
+            category: categories.length > 0 ? categories[0]._id : "",
             originalPrice: "",
             offerPrice: "",
             isActive: true,
@@ -105,20 +112,23 @@ export default function Products() {
         setEditId(p._id);
         setFormData({
             name: p.name,
-            category: p.category?._id || "",
+            category: p.category?._id || p.category || "",
             originalPrice: p.originalPrice,
             offerPrice: p.offerPrice,
             isActive: p.isActive,
             image: null
         });
-        setPreview(p.image ? `http://api.advaytraders.in/${p.image}` : null);
+        setPreview(p.image ? getImageUrl(p.image) : null);
         if (productModalInstance.current) {
             productModalInstance.current.show();
         }
     };
 
-    const openProductModal = () => {
+    const openProductModal = (defaultCatId = "") => {
         resetForm();
+        if (defaultCatId) {
+            setFormData(prev => ({ ...prev, category: defaultCatId }));
+        }
         if (productModalInstance.current) {
             productModalInstance.current.show();
         }
@@ -190,12 +200,75 @@ export default function Products() {
         }
     };
 
-    const handleAddCategory = async () => {
-        if (!newCategoryName) return;
+    /* ==========================================
+       CATEGORY REORDERING (UP / DOWN)
+    ========================================== */
+    const moveCategory = async (catId, direction) => {
+        const index = categories.findIndex(c => c._id === catId);
+        if (index === -1) return;
+
+        const targetIndex = direction === "up" ? index - 1 : index + 1;
+        if (targetIndex < 0 || targetIndex >= categories.length) return;
+
+        const newCategories = [...categories];
+        const [movedCategory] = newCategories.splice(index, 1);
+        newCategories.splice(targetIndex, 0, movedCategory);
+
+        // Optimistically update UI
+        setCategories(newCategories);
+
         try {
-            const res = await api.post("/categories", { name: newCategoryName });
+            const orderedIds = newCategories.map(c => c._id);
+            await api.post("/categories/reorder", { orderedIds });
+            await fetchCategories();
+            await fetchProducts();
+        } catch (err) {
+            console.error("Failed to reorder categories:", err);
+            await fetchCategories(); // Revert on failure
+        }
+    };
+
+    /* ==========================================
+       PRODUCT REORDERING (UP / DOWN)
+    ========================================== */
+    const moveProduct = async (catId, productId, direction) => {
+        const catProducts = products
+            .filter(p => (p.category?._id || p.category) === catId)
+            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+        const index = catProducts.findIndex(p => p._id === productId);
+        if (index === -1) return;
+
+        const targetIndex = direction === "up" ? index - 1 : index + 1;
+        if (targetIndex < 0 || targetIndex >= catProducts.length) return;
+
+        const newCatProducts = [...catProducts];
+        const [moved] = newCatProducts.splice(index, 1);
+        newCatProducts.splice(targetIndex, 0, moved);
+
+        // Assign explicit new sequential order 0, 1, 2, ...
+        const updatedCatProducts = newCatProducts.map((p, idx) => ({ ...p, order: idx }));
+
+        // Optimistically update products state
+        const otherProducts = products.filter(p => (p.category?._id || p.category) !== catId);
+        setProducts([...otherProducts, ...updatedCatProducts]);
+
+        try {
+            const orderedIds = updatedCatProducts.map(p => p._id);
+            await api.post("/products/reorder", { orderedIds });
+            await fetchProducts();
+        } catch (err) {
+            console.error("Failed to reorder products:", err);
+            await fetchProducts();
+        }
+    };
+
+    const handleAddCategory = async () => {
+        if (!newCategoryName.trim()) return;
+        try {
+            const res = await api.post("/categories", { name: newCategoryName.trim() });
             setCategories([...categories, res.data]);
-            setFormData({ ...formData, category: res.data._id });
+            setFormData(prev => ({ ...prev, category: res.data._id }));
             setNewCategoryName("");
         } catch (err) {
             console.error(err);
@@ -208,7 +281,8 @@ export default function Products() {
             try {
                 await api.delete(`/categories/${id}`);
                 setCategories(categories.filter(c => c._id !== id));
-                if (formData.category === id) setFormData({ ...formData, category: "" });
+                if (formData.category === id) setFormData(prev => ({ ...prev, category: "" }));
+                fetchProducts();
                 alert("Category deleted successfully");
             } catch (err) {
                 console.error(err);
@@ -218,12 +292,13 @@ export default function Products() {
     };
 
     const handleUpdateCategory = async (id) => {
-        if (!editCategoryName) return;
+        if (!editCategoryName.trim()) return;
         try {
-            const res = await api.patch(`/categories/${id}`, { name: editCategoryName });
+            const res = await api.patch(`/categories/${id}`, { name: editCategoryName.trim() });
             setCategories(categories.map(c => c._id === id ? res.data : c));
             setEditCategoryId(null);
             setEditCategoryName("");
+            fetchProducts();
         } catch (err) {
             console.error(err);
             alert("Error updating category: " + (err.response?.data?.message || err.message));
@@ -258,101 +333,84 @@ export default function Products() {
             try {
                 await api.post("/products/bulk-delete", { ids: selectedProducts });
                 fetchProducts();
+                setSelectedProducts([]);
+                setSelectAll(false);
             } catch (err) {
                 console.error(err);
             }
         }
     };
 
-    const handleBulkStatusUpdate = async (isActive) => {
+    const handleBulkStatusUpdate = async (status) => {
         if (selectedProducts.length === 0) {
             alert("Please select products to update");
             return;
         }
         try {
-            await api.post("/products/bulk-status", { ids: selectedProducts, isActive });
+            await api.post("/products/bulk-status", { ids: selectedProducts, isActive: status });
             fetchProducts();
+            setSelectedProducts([]);
+            setSelectAll(false);
         } catch (err) {
             console.error(err);
         }
     };
 
-    // CSV Export
+    // Export CSV
     const handleExportCSV = () => {
-        if (products.length === 0) return alert("No products to export");
-
-        const headers = ["Name", "Category", "Original Price", "Offer Price", "Status"];
+        if (products.length === 0) {
+            alert("No products available to export");
+            return;
+        }
+        const headers = ["Product Name", "Category", "Original Price", "Offer Price", "Status"];
         const rows = products.map(p => [
-            p.name,
-            p.category?.name || "N/A",
+            `"${p.name.replace(/"/g, '""')}"`,
+            `"${(p.category?.name || "Uncategorized").replace(/"/g, '""')}"`,
             p.originalPrice,
             p.offerPrice,
             p.isActive ? "Active" : "Disabled"
         ]);
-
-        const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
-        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+        const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
-        const url = URL.createObjectURL(blob);
-        link.setAttribute("href", url);
-        link.setAttribute("download", `products_export_${Date.now()}.csv`);
-        link.style.visibility = "hidden";
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `products_export_${new Date().toISOString().split("T")[0]}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     };
 
-    // CSV Import handling
-    const handleImportCSV = async (e, type) => {
+    // Import CSV
+    const handleImportCSV = (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
         const reader = new FileReader();
         reader.onload = async (event) => {
-            const text = event.target.result;
-            // Handle both \n and \r\n line endings correctly
-            const lines = text.split(/\r?\n/).filter(line => line.trim() !== "");
-
-            if (lines.length < 2) {
-                alert("CSV file seems to be empty or missing data rows.");
-                return;
-            }
-
-            // Skip headers on first line
-            const dataRows = lines.slice(1);
-
             try {
+                const text = event.target.result;
+                const lines = text.split(/\r\n|\n/).filter(line => line.trim() !== "");
+                if (lines.length <= 1) throw new Error("CSV file is empty or missing data rows.");
+
+                const rows = lines.slice(1);
                 const errors = [];
-                const productsData = dataRows.map((line, index) => {
-                    const columns = line.split(",").map(s => s.trim());
-
-                    if (columns.length < 4) {
-                        errors.push(`Row ${index + 2}: Insufficient columns (Needs Name, Category, OriginalPrice, OfferPrice)`);
+                const productsData = rows.map((line, idx) => {
+                    const parts = line.split(",").map(s => s.trim().replace(/^"|"$/g, ''));
+                    if (parts.length < 4) {
+                        errors.push(`Row ${idx + 2}: Invalid column count`);
                         return null;
                     }
-
-                    const [name, categoryName, originalPrice, offerPrice] = columns;
-
-                    const cat = categories.find(c => c.name.trim().toLowerCase() === categoryName.toLowerCase());
-
+                    const [name, categoryName, originalPrice, offerPrice] = parts;
+                    const cat = categories.find(c => c.name.toLowerCase() === categoryName.toLowerCase());
                     if (!cat) {
-                        errors.push(`Row ${index + 2}: Category "${categoryName}" not found. Please create it first exactly as named.`);
+                        errors.push(`Row ${idx + 2}: Category "${categoryName}" does not exist`);
                         return null;
                     }
-
-                    const oPrice = parseFloat(originalPrice);
-                    const sPrice = parseFloat(offerPrice);
-
-                    if (isNaN(oPrice) || isNaN(sPrice)) {
-                        errors.push(`Row ${index + 2}: Prices are not valid numbers.`);
-                        return null;
-                    }
-
                     return {
                         name,
                         category: cat._id,
-                        originalPrice: oPrice,
-                        offerPrice: sPrice,
+                        originalPrice: Number(originalPrice) || 0,
+                        offerPrice: Number(offerPrice) || 0,
                         isActive: true
                     };
                 }).filter(p => p !== null);
@@ -362,34 +420,39 @@ export default function Products() {
                     return;
                 }
 
-                if (productsData.length === 0) throw new Error("No valid products to import.");
-
                 await api.post("/products/bulk", { products: productsData });
                 fetchProducts();
                 alert(`Successfully imported ${productsData.length} products!`);
-                e.target.value = ""; // Clear file input after use
+                e.target.value = "";
             } catch (err) {
                 console.error("Import Error:", err);
-                const msg = err.response?.data?.message || err.message || "Failed to process import.";
-                alert("Import failed: " + msg);
+                alert("Import failed: " + (err.response?.data?.message || err.message));
             }
         };
-        reader.onerror = () => alert("Failed to read file.");
         reader.readAsText(file);
     };
 
-    return (
-        <div className="container mt-4">
-            <div className="d-flex justify-content-between align-items-center mb-4">
-                <h4 className="fw-bold">Product Management</h4>
-                <div className="d-flex gap-2">
-                    {/* Direct Import Button for Products */}
-                    <button className="btn btn-outline-success btn-sm shadow-sm" onClick={() => { console.log('Import Products Clicked'); prodImportRef.current.click(); }}>
-                        <i className="bi bi-file-earmark-arrow-up me-1"></i> Import Products
-                    </button>
+    // Filter categories to display
+    const displayedCategories = filterCategory
+        ? categories.filter(c => c._id === filterCategory)
+        : categories;
 
-                    {/* Hidden File Input */}
-                    <input type="file" ref={prodImportRef} className="d-none" accept=".csv" onChange={(e) => handleImportCSV(e, "products")} />
+    // Check for products with no category
+    const uncategorizedProducts = products.filter(p => !p.category || !categories.some(c => c._id === (p.category?._id || p.category)));
+
+    return (
+        <div className="container-fluid py-4 px-4">
+            {/* Header */}
+            <div className="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+                <div>
+                    <h4 className="fw-bold mb-1">Product Management</h4>
+                    <p className="text-muted small mb-0">Group products category-wise and reorder placement (▲ / ▼)</p>
+                </div>
+                <div className="d-flex gap-2 flex-wrap">
+                    <button className="btn btn-outline-success btn-sm shadow-sm" onClick={() => prodImportRef.current.click()}>
+                        <i className="bi bi-file-earmark-arrow-up me-1"></i> Import CSV
+                    </button>
+                    <input type="file" ref={prodImportRef} className="d-none" accept=".csv" onChange={handleImportCSV} />
 
                     <button className="btn btn-outline-primary btn-sm shadow-sm" onClick={handleExportCSV}>
                         <i className="bi bi-file-earmark-arrow-down me-1"></i> Export CSV
@@ -397,50 +460,53 @@ export default function Products() {
                     <button className="btn btn-outline-info btn-sm shadow-sm" onClick={() => categoryModalInstance.current?.show()}>
                         <i className="bi bi-tags me-1"></i> Manage Categories
                     </button>
-                    <button className="btn btn-primary btn-sm shadow-sm" onClick={openProductModal}>
+                    <button className="btn btn-primary btn-sm shadow-sm" onClick={() => openProductModal()}>
                         <i className="bi bi-plus-lg me-1"></i> Add Product
                     </button>
                 </div>
             </div>
 
             {/* Filters */}
-            <div className="card shadow-sm border-0 mb-3">
+            <div className="card shadow-sm border-0 mb-4 bg-white">
                 <div className="card-body">
-                    <div className="row g-3">
-                        <div className="col-md-3">
-                            <label className="form-label fw-bold small">Search</label>
-                            <input
-                                type="text"
-                                className="form-control form-control-sm"
-                                placeholder="Search by name..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
+                    <div className="row g-3 align-items-end">
+                        <div className="col-md-4">
+                            <label className="form-label fw-bold small text-secondary">Search Products</label>
+                            <div className="input-group input-group-sm">
+                                <span className="input-group-text bg-light border-end-0"><i className="bi bi-search text-muted"></i></span>
+                                <input
+                                    type="text"
+                                    className="form-control border-start-0"
+                                    placeholder="Search by product name..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                            </div>
                         </div>
                         <div className="col-md-3">
-                            <label className="form-label fw-bold small">Category</label>
+                            <label className="form-label fw-bold small text-secondary">Filter by Category</label>
                             <select
                                 className="form-select form-select-sm"
                                 value={filterCategory}
                                 onChange={(e) => setFilterCategory(e.target.value)}
                             >
-                                <option value="">All Categories</option>
+                                <option value="">All Categories ({categories.length})</option>
                                 {categories.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
                             </select>
                         </div>
                         <div className="col-md-3">
-                            <label className="form-label fw-bold small">Status</label>
+                            <label className="form-label fw-bold small text-secondary">Filter by Status</label>
                             <select
                                 className="form-select form-select-sm"
                                 value={filterStatus}
                                 onChange={(e) => setFilterStatus(e.target.value)}
                             >
                                 <option value="">All Status</option>
-                                <option value="true">Active</option>
-                                <option value="false">Disabled</option>
+                                <option value="true">Active Only</option>
+                                <option value="false">Disabled Only</option>
                             </select>
                         </div>
-                        <div className="col-md-3 d-flex align-items-end">
+                        <div className="col-md-2">
                             <button
                                 className="btn btn-outline-secondary btn-sm w-100"
                                 onClick={() => {
@@ -449,125 +515,278 @@ export default function Products() {
                                     setFilterStatus("");
                                 }}
                             >
-                                <i className="bi bi-x-circle me-1"></i> Clear Filters
+                                <i className="bi bi-arrow-counterclockwise me-1"></i> Reset
                             </button>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Bulk Actions */}
+            {/* Bulk Selection Bar */}
             {selectedProducts.length > 0 && (
-                <div className="alert alert-info d-flex justify-content-between align-items-center py-2 px-3 border-0 shadow-sm">
+                <div className="alert alert-info d-flex justify-content-between align-items-center py-2 px-3 border-0 shadow-sm mb-4">
                     <span className="small"><strong>{selectedProducts.length}</strong> products selected</span>
                     <div className="btn-group btn-group-sm">
                         <button className="btn btn-success" onClick={() => handleBulkStatusUpdate(true)}>
-                            Enable
+                            <i className="bi bi-check-circle me-1"></i> Enable
                         </button>
                         <button className="btn btn-warning" onClick={() => handleBulkStatusUpdate(false)}>
-                            Disable
+                            <i className="bi bi-dash-circle me-1"></i> Disable
                         </button>
                         <button className="btn btn-danger" onClick={handleBulkDelete}>
-                            Delete
+                            <i className="bi bi-trash me-1"></i> Delete
                         </button>
                     </div>
                 </div>
             )}
 
-            <div className="card shadow-sm border-0 overflow-hidden">
-                <div className="card-body p-0">
-                    <div className="table-responsive">
-                        <table className="table table-hover align-middle mb-0">
-                            <thead className="table-light text-secondary small text-uppercase">
-                                <tr>
-                                    <th className="ps-3" style={{ width: "40px" }}>
-                                        <input
-                                            type="checkbox"
-                                            className="form-check-input"
-                                            checked={products.length > 0 && selectAll}
-                                            onChange={handleSelectAll}
-                                        />
-                                    </th>
-                                    <th style={{ width: "60px" }}>S.No</th>
-                                    <th style={{ width: "80px" }}>Image</th>
-                                    <th>Name</th>
-                                    <th style={{ width: "120px" }}>Category</th>
-                                    <th style={{ width: "100px" }}>Price</th>
-                                    <th style={{ width: "180px" }}>Status</th>
-                                    <th className="text-center" style={{ width: "120px" }}>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {products.length === 0 ? (
-                                    <tr>
-                                        <td colSpan="8" className="text-center py-4 text-muted">No products found</td>
-                                    </tr>
-                                ) : products.map((p, i) => (
-                                    <tr key={p._id}>
-                                        <td className="ps-3">
-                                            <input
-                                                type="checkbox"
-                                                className="form-check-input"
-                                                checked={selectedProducts.includes(p._id)}
-                                                onChange={() => handleSelectProduct(p._id)}
-                                            />
-                                        </td>
-                                        <td>{i + 1}</td>
-                                        <td>
-                                            <img
-                                                src={p.image ? `http://api.advaytraders.in/${p.image}` : "http://api.advaytraders.in/uploads/AD-preview.png"}
-                                                alt={p.name}
-                                                className="rounded border"
-                                                style={{ width: "45px", height: "45px", objectFit: "cover" }}
-                                            />
-                                        </td>
-                                        <td className="fw-semibold">{p.name}</td>
-                                        <td><span className="badge bg-light text-dark border font-normal">{p.category?.name || "N/A"}</span></td>
-                                        <td>
-                                            <div className="text-decoration-line-through text-muted extra-small">₹{p.originalPrice}</div>
-                                            <div className="fw-bold text-success">₹{p.offerPrice}</div>
-                                        </td>
-                                        <td>
-                                            <div className="form-check form-switch d-flex align-items-center gap-2 text-nowrap">
+            {/* CATEGORY-WISE PRODUCT SECTIONS */}
+            {displayedCategories.map((cat, catIdx) => {
+                const catProducts = products
+                    .filter(p => (p.category?._id || p.category) === cat._id)
+                    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+                return (
+                    <div key={cat._id} className="card shadow-sm border-0 mb-4 overflow-hidden">
+                        {/* Category Header with Reorder Arrows */}
+                        <div className="card-header d-flex justify-content-between align-items-center py-2 px-3" style={{ backgroundColor: "#1B365D", color: "#ffffff" }}>
+                            <div className="d-flex align-items-center gap-2">
+                                <span className="badge bg-warning text-dark fw-bold px-2 py-1">
+                                    #{catIdx + 1}
+                                </span>
+                                <h6 className="mb-0 fw-bold text-white text-uppercase letter-spacing-1">
+                                    {cat.name}
+                                </h6>
+                                <span className="badge bg-light bg-opacity-25 text-white small">
+                                    {catProducts.length} {catProducts.length === 1 ? "Product" : "Products"}
+                                </span>
+                            </div>
+
+                            <div className="d-flex align-items-center gap-2">
+                                <div className="btn-group btn-group-sm" role="group" aria-label="Category Order">
+                                    <button
+                                        type="button"
+                                        className="btn btn-outline-light btn-sm py-0 px-2"
+                                        title="Move Category UP"
+                                        disabled={categories.findIndex(c => c._id === cat._id) <= 0}
+                                        onClick={() => moveCategory(cat._id, "up")}
+                                    >
+                                        <i className="bi bi-arrow-up-circle-fill"></i> UP
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-outline-light btn-sm py-0 px-2"
+                                        title="Move Category DOWN"
+                                        disabled={categories.findIndex(c => c._id === cat._id) >= categories.length - 1}
+                                        onClick={() => moveCategory(cat._id, "down")}
+                                    >
+                                        <i className="bi bi-arrow-down-circle-fill"></i> DOWN
+                                    </button>
+                                </div>
+
+                                <button
+                                    className="btn btn-warning btn-sm py-0 px-2 text-dark fw-semibold"
+                                    onClick={() => openProductModal(cat._id)}
+                                    title={`Add product under ${cat.name}`}
+                                >
+                                    <i className="bi bi-plus-lg"></i> Add
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Category Products Table */}
+                        <div className="card-body p-0">
+                            <div className="table-responsive">
+                                <table className="table table-hover align-middle mb-0">
+                                    <thead className="table-light text-secondary small text-uppercase" style={{ backgroundColor: "#fff8e1" }}>
+                                        <tr>
+                                            <th className="ps-3" style={{ width: "40px" }}>
                                                 <input
-                                                    className="form-check-input mt-0"
                                                     type="checkbox"
-                                                    checked={p.isActive}
-                                                    onChange={() => toggleStatus(p)}
+                                                    className="form-check-input"
+                                                    checked={catProducts.length > 0 && catProducts.every(p => selectedProducts.includes(p._id))}
+                                                    onChange={() => {
+                                                        const catIds = catProducts.map(p => p._id);
+                                                        const allSelected = catIds.every(id => selectedProducts.includes(id));
+                                                        if (allSelected) {
+                                                            setSelectedProducts(selectedProducts.filter(id => !catIds.includes(id)));
+                                                        } else {
+                                                            setSelectedProducts([...new Set([...selectedProducts, ...catIds])]);
+                                                        }
+                                                    }}
                                                 />
-                                                <span className={`badge ${p.isActive ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger"}`}>
-                                                    {p.isActive ? "Active" : "Disabled"}
-                                                </span>
-                                            </div>
-                                        </td>
-                                        <td className="text-center text-nowrap">
-                                            <button className="btn btn-sm btn-link text-primary p-0 me-2" onClick={() => handleEdit(p)} title="Edit">
-                                                <i className="bi bi-pencil-square fs-5"></i>
-                                            </button>
-                                            <button className="btn btn-sm btn-link text-danger p-0" onClick={() => handleDelete(p._id)} title="Delete">
-                                                <i className="bi bi-trash-fill fs-5"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                            </th>
+                                            <th style={{ width: "70px" }}>Order</th>
+                                            <th style={{ width: "80px" }}>Image</th>
+                                            <th>Product Name</th>
+                                            <th style={{ width: "160px" }}>Price (Original / Offer)</th>
+                                            <th style={{ width: "140px" }}>Status</th>
+                                            <th className="text-center" style={{ width: "130px" }}>Reorder Product</th>
+                                            <th className="text-center" style={{ width: "100px" }}>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {catProducts.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="8" className="text-center py-4 text-muted small">
+                                                    No products found in this category. Click <strong>Add</strong> to add the first product!
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            catProducts.map((p, pIdx) => (
+                                                <tr key={p._id}>
+                                                    <td className="ps-3">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="form-check-input"
+                                                            checked={selectedProducts.includes(p._id)}
+                                                            onChange={() => handleSelectProduct(p._id)}
+                                                        />
+                                                    </td>
+                                                    <td className="fw-semibold text-muted small">
+                                                        #{pIdx + 1}
+                                                    </td>
+                                                    <td>
+                                                        <img
+                                                            src={getImageUrl(p.image)}
+                                                            alt={p.name}
+                                                            className="rounded border"
+                                                            style={{ width: "45px", height: "45px", objectFit: "cover" }}
+                                                            onError={(e) => {
+                                                                e.target.onerror = null;
+                                                                e.target.src = getImageUrl(null);
+                                                            }}
+                                                        />
+                                                    </td>
+                                                    <td className="fw-semibold text-dark">{p.name}</td>
+                                                    <td>
+                                                        <span className="text-decoration-line-through text-muted small me-2">₹{p.originalPrice}</span>
+                                                        <span className="fw-bold text-success">₹{p.offerPrice}</span>
+                                                    </td>
+                                                    <td>
+                                                        <div className="form-check form-switch d-flex align-items-center gap-2">
+                                                            <input
+                                                                className="form-check-input mt-0"
+                                                                type="checkbox"
+                                                                checked={p.isActive}
+                                                                onChange={() => toggleStatus(p)}
+                                                            />
+                                                            <span className={`badge ${p.isActive ? "bg-success" : "bg-danger"}`}>
+                                                                {p.isActive ? "Active" : "Disabled"}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Product Move UP / DOWN Buttons */}
+                                                    <td className="text-center">
+                                                        <div className="btn-group btn-group-sm">
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-outline-secondary btn-sm"
+                                                                title="Move Product UP"
+                                                                disabled={pIdx === 0}
+                                                                onClick={() => moveProduct(cat._id, p._id, "up")}
+                                                            >
+                                                                <i className="bi bi-chevron-up"></i>
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-outline-secondary btn-sm"
+                                                                title="Move Product DOWN"
+                                                                disabled={pIdx === catProducts.length - 1}
+                                                                onClick={() => moveProduct(cat._id, p._id, "down")}
+                                                            >
+                                                                <i className="bi bi-chevron-down"></i>
+                                                            </button>
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Edit & Delete Actions */}
+                                                    <td className="text-center text-nowrap">
+                                                        <button className="btn btn-sm btn-link text-primary p-0 me-2" onClick={() => handleEdit(p)} title="Edit Product">
+                                                            <i className="bi bi-pencil-square fs-5"></i>
+                                                        </button>
+                                                        <button className="btn btn-sm btn-link text-danger p-0" onClick={() => handleDelete(p._id)} title="Delete Product">
+                                                            <i className="bi bi-trash-fill fs-5"></i>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })}
+
+            {/* UNCATEGORIZED PRODUCTS IF ANY */}
+            {uncategorizedProducts.length > 0 && (
+                <div className="card shadow-sm border-0 mb-4 overflow-hidden">
+                    <div className="card-header bg-secondary text-white py-2 px-3 d-flex justify-content-between align-items-center">
+                        <h6 className="mb-0 fw-bold">Uncategorized Products ({uncategorizedProducts.length})</h6>
+                    </div>
+                    <div className="card-body p-0">
+                        <div className="table-responsive">
+                            <table className="table table-hover align-middle mb-0">
+                                <tbody>
+                                    {uncategorizedProducts.map((p, pIdx) => (
+                                        <tr key={p._id}>
+                                            <td style={{ width: "40px" }} className="ps-3">
+                                                <input
+                                                    type="checkbox"
+                                                    className="form-check-input"
+                                                    checked={selectedProducts.includes(p._id)}
+                                                    onChange={() => handleSelectProduct(p._id)}
+                                                />
+                                            </td>
+                                            <td style={{ width: "70px" }}>#{pIdx + 1}</td>
+                                            <td style={{ width: "80px" }}>
+                                                <img
+                                                    src={getImageUrl(p.image)}
+                                                    alt={p.name}
+                                                    className="rounded border"
+                                                    style={{ width: "45px", height: "45px", objectFit: "cover" }}
+                                                    onError={(e) => {
+                                                        e.target.onerror = null;
+                                                        e.target.src = getImageUrl(null);
+                                                    }}
+                                                />
+                                            </td>
+                                            <td className="fw-semibold">{p.name}</td>
+                                            <td style={{ width: "160px" }}>₹{p.offerPrice}</td>
+                                            <td style={{ width: "140px" }}>
+                                                <span className={`badge ${p.isActive ? "bg-success" : "bg-danger"}`}>{p.isActive ? "Active" : "Disabled"}</span>
+                                            </td>
+                                            <td className="text-center" style={{ width: "130px" }}>—</td>
+                                            <td className="text-center text-nowrap" style={{ width: "100px" }}>
+                                                <button className="btn btn-sm btn-link text-primary p-0 me-2" onClick={() => handleEdit(p)}>
+                                                    <i className="bi bi-pencil-square fs-5"></i>
+                                                </button>
+                                                <button className="btn btn-sm btn-link text-danger p-0" onClick={() => handleDelete(p._id)}>
+                                                    <i className="bi bi-trash-fill fs-5"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
 
-            {/* PRODUCT MODAL */}
+            {/* PRODUCT MODAL (ADD / EDIT) */}
             <div className="modal fade" ref={productModalRef} tabIndex="-1">
-                <div className="modal-dialog modal-lg modal-dialog-centered">
+                <div className="modal-dialog modal-dialog-centered modal-lg">
                     <div className="modal-content border-0 shadow">
+                        <div className="modal-header bg-light border-0">
+                            <h5 className="modal-title fw-bold">{editId ? "Edit Product" : "Add New Product"}</h5>
+                            <button type="button" className="btn-close" onClick={() => productModalInstance.current?.hide()}></button>
+                        </div>
                         <form onSubmit={handleSubmit}>
-                            <div className="modal-header bg-light border-0">
-                                <h5 className="modal-title fw-bold">
-                                    {editId ? "Edit Product" : "Add New Product"}
-                                </h5>
-                                <button type="button" className="btn-close" onClick={() => productModalInstance.current?.hide()}></button>
-                            </div>
-                            <div className="modal-body">
+                            <div className="modal-body p-4">
                                 <div className="row g-3">
                                     <div className="col-md-6">
                                         <label className="form-label fw-bold">Product Name</label>
@@ -582,7 +801,7 @@ export default function Products() {
                                     <div className="col-md-6">
                                         <label className="form-label fw-bold">Category</label>
                                         <select
-                                            className="form-select shadow-sm"
+                                            className="form-select"
                                             required
                                             value={formData.category}
                                             onChange={(e) => setFormData({ ...formData, category: e.target.value })}
@@ -590,7 +809,6 @@ export default function Products() {
                                             <option value="">Select Category</option>
                                             {categories.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
                                         </select>
-                                        <div className="form-text mt-1 small text-muted">Use 'Manage Categories' on dashboard to add/edit.</div>
                                     </div>
                                     <div className="col-md-6">
                                         <label className="form-label fw-bold">Original Price (₹)</label>
@@ -663,34 +881,36 @@ export default function Products() {
 
             {/* CATEGORY MANAGEMENT MODAL */}
             <div className="modal fade" ref={categoryModalRef} tabIndex="-1">
-                <div className="modal-dialog modal-dialog-centered">
+                <div className="modal-dialog modal-dialog-centered modal-lg">
                     <div className="modal-content border-0 shadow">
                         <div className="modal-header bg-light border-0">
-                            <h5 className="modal-title fw-bold">Manage Categories</h5>
+                            <h5 className="modal-title fw-bold">Manage Categories & Placement</h5>
                             <button type="button" className="btn-close" onClick={() => categoryModalInstance.current?.hide()}></button>
                         </div>
-                        <div className="modal-body">
+                        <div className="modal-body p-4">
                             <div className="p-3 bg-light rounded border border-dashed mb-3">
                                 <label className="fw-bold small mb-2 d-block">Add New Category</label>
                                 <div className="d-flex gap-2">
                                     <input
                                         type="text"
                                         className="form-control form-control-sm"
-                                        placeholder="Category name"
+                                        placeholder="Enter category name"
                                         value={newCategoryName}
                                         onChange={(e) => setNewCategoryName(e.target.value)}
                                     />
-                                    <button className="btn btn-sm btn-success px-3" onClick={handleAddCategory}>Add</button>
+                                    <button className="btn btn-sm btn-success px-3" onClick={handleAddCategory}>
+                                        <i className="bi bi-plus-lg me-1"></i> Add
+                                    </button>
                                 </div>
                             </div>
 
-                            <label className="fw-bold small mb-2 d-block">Existing Categories</label>
+                            <label className="fw-bold small mb-2 d-block">Categories Placement Order (▲ / ▼)</label>
                             <div className="category-list shadow-sm border rounded overflow-hidden">
                                 {categories.length === 0 ? (
                                     <div className="p-3 text-center text-muted small">No categories found</div>
                                 ) : (
-                                    <div className="scrollbar-thin" style={{ maxHeight: "300px", overflowY: "auto" }}>
-                                        {categories.map(c => (
+                                    <div className="scrollbar-thin" style={{ maxHeight: "350px", overflowY: "auto" }}>
+                                        {categories.map((c, idx) => (
                                             <div key={c._id} className="d-flex justify-content-between align-items-center p-3 bg-white border-bottom last-border-0">
                                                 {editCategoryId === c._id ? (
                                                     <div className="d-flex gap-1 w-100">
@@ -709,22 +929,48 @@ export default function Products() {
                                                     </div>
                                                 ) : (
                                                     <>
-                                                        <span className="fw-medium">{c.name}</span>
-                                                        <div className="btn-group btn-group-sm">
-                                                            <button
-                                                                className="btn btn-outline-primary border-0"
-                                                                onClick={() => { setEditCategoryId(c._id); setEditCategoryName(c.name); }}
-                                                                title="Edit"
-                                                            >
-                                                                <i className="bi bi-pencil-fill"></i>
-                                                            </button>
-                                                            <button
-                                                                className="btn btn-outline-danger border-0"
-                                                                onClick={() => handleDeleteCategory(c._id, c.name)}
-                                                                title="Delete"
-                                                            >
-                                                                <i className="bi bi-trash-fill"></i>
-                                                            </button>
+                                                        <div className="d-flex align-items-center gap-2">
+                                                            <span className="badge bg-secondary">#{idx + 1}</span>
+                                                            <span className="fw-semibold text-dark">{c.name}</span>
+                                                        </div>
+
+                                                        <div className="d-flex align-items-center gap-2">
+                                                            {/* Reorder Buttons */}
+                                                            <div className="btn-group btn-group-sm">
+                                                                <button
+                                                                    className="btn btn-outline-secondary btn-sm"
+                                                                    disabled={idx === 0}
+                                                                    onClick={() => moveCategory(c._id, "up")}
+                                                                    title="Move Category UP"
+                                                                >
+                                                                    <i className="bi bi-chevron-up"></i>
+                                                                </button>
+                                                                <button
+                                                                    className="btn btn-outline-secondary btn-sm"
+                                                                    disabled={idx === categories.length - 1}
+                                                                    onClick={() => moveCategory(c._id, "down")}
+                                                                    title="Move Category DOWN"
+                                                                >
+                                                                    <i className="bi bi-chevron-down"></i>
+                                                                </button>
+                                                            </div>
+
+                                                            <div className="btn-group btn-group-sm ms-2">
+                                                                <button
+                                                                    className="btn btn-outline-primary border-0"
+                                                                    onClick={() => { setEditCategoryId(c._id); setEditCategoryName(c.name); }}
+                                                                    title="Edit Category Name"
+                                                                >
+                                                                    <i className="bi bi-pencil-fill"></i>
+                                                                </button>
+                                                                <button
+                                                                    className="btn btn-outline-danger border-0"
+                                                                    onClick={() => handleDeleteCategory(c._id, c.name)}
+                                                                    title="Delete Category"
+                                                                >
+                                                                    <i className="bi bi-trash-fill"></i>
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                     </>
                                                 )}
@@ -742,14 +988,11 @@ export default function Products() {
             </div>
 
             <style>{`
-                .extra-small { font-size: 0.7rem; }
-                .cursor-pointer { cursor: pointer; }
+                .letter-spacing-1 { letter-spacing: 0.8px; }
                 .border-dashed { border-style: dashed !important; }
-                .font-normal { font-weight: normal !important; }
                 .scrollbar-thin::-webkit-scrollbar { width: 4px; }
                 .scrollbar-thin::-webkit-scrollbar-track { background: #f1f1f1; }
                 .scrollbar-thin::-webkit-scrollbar-thumb { background: #888; border-radius: 10px; }
-                .btn-xs { padding: 0.1rem 0.25rem; font-size: 0.75rem; }
                 .last-border-0:last-child { border-bottom: 0 !important; }
             `}</style>
         </div>

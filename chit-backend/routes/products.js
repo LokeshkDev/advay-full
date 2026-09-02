@@ -39,27 +39,70 @@ router.get("/", async (req, res) => {
             query.name = { $regex: search, $options: "i" };
         }
 
-        const products = await Product.find(query)
+        let products = await Product.find(query)
             .populate("category")
-            .sort({ createdAt: -1 });
+            .sort({ order: 1, createdAt: 1 });
+
+        // Auto-fix any products without order field
+        const needsOrder = products.some((p) => p.order === undefined || p.order === null);
+        if (needsOrder) {
+            const bulkOps = products.map((p, idx) => ({
+                updateOne: {
+                    filter: { _id: p._id },
+                    update: { $set: { order: p.order !== undefined && p.order !== null ? p.order : idx } },
+                },
+            }));
+            await Product.bulkWrite(bulkOps);
+            products = await Product.find(query)
+                .populate("category")
+                .sort({ order: 1, createdAt: 1 });
+        }
+
         res.json(products);
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
 });
 
+// Reorder products (supports both PUT and POST)
+const handleProductReorder = async (req, res) => {
+    try {
+        const { orderedIds } = req.body;
+        if (!Array.isArray(orderedIds)) {
+            return res.status(400).json({ message: "orderedIds array is required" });
+        }
+
+        const bulkOps = orderedIds.map((id, index) => ({
+            updateOne: {
+                filter: { _id: id },
+                update: { $set: { order: index } },
+            },
+        }));
+
+        await Product.bulkWrite(bulkOps);
+        res.json({ message: "Products reordered successfully" });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
+router.put("/reorder", handleProductReorder);
+router.post("/reorder", handleProductReorder);
+
 // Add a product
 router.post("/", upload.single("image"), async (req, res) => {
-    const product = new Product({
-        name: req.body.name,
-        image: req.file ? req.file.path : null,
-        category: req.body.category,
-        originalPrice: req.body.originalPrice,
-        offerPrice: req.body.offerPrice,
-        isActive: req.body.isActive === "true" || req.body.isActive === true,
-    });
-
     try {
+        const count = await Product.countDocuments({ category: req.body.category });
+        const product = new Product({
+            name: req.body.name,
+            image: req.file ? req.file.path : null,
+            category: req.body.category,
+            originalPrice: req.body.originalPrice,
+            offerPrice: req.body.offerPrice,
+            isActive: req.body.isActive === "true" || req.body.isActive === true,
+            order: req.body.order !== undefined ? Number(req.body.order) : count,
+        });
+
         const newProduct = await product.save();
         const populatedProduct = await Product.findById(newProduct._id).populate(
             "category"
@@ -154,6 +197,9 @@ router.patch("/:id", upload.single("image"), async (req, res) => {
         if (req.body.offerPrice) product.offerPrice = req.body.offerPrice;
         if (req.body.isActive !== undefined) {
             product.isActive = req.body.isActive === "true" || req.body.isActive === true;
+        }
+        if (req.body.order !== undefined) {
+            product.order = Number(req.body.order);
         }
 
         const updatedProduct = await product.save();
