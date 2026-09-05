@@ -26,6 +26,21 @@ router.get("/test-email", async (req, res) => {
   }
 });
 
+// Helper to normalize enquiry response ensuring customer details snapshot is authoritative
+const formatEnquiryResponse = (enquiryDoc) => {
+  if (!enquiryDoc) return enquiryDoc;
+  const doc = enquiryDoc.toObject ? enquiryDoc.toObject() : { ...enquiryDoc };
+
+  // If customer subdocument exists, it is the authoritative snapshot for this specific enquiry
+  if (doc.customer && (doc.customer.name || doc.customer.phone || doc.customer.email)) {
+    doc.customerId = {
+      _id: doc.customerId?._id || doc.customerId || doc._id,
+      ...doc.customer,
+    };
+  }
+  return doc;
+};
+
 router.post("/", async (req, res) => {
   if (!req.body) {
     return res.status(400).json({
@@ -45,26 +60,66 @@ router.post("/", async (req, res) => {
     }
 
     /* ======================================================
-       1️⃣ STORE CUSTOMER
+       1️⃣ PREPARE CUSTOMER SNAPSHOT & MASTER RECORD
     ====================================================== */
+    const customerSnapshot = {
+      name: (customer.name || "").trim(),
+      phone: (customer.phone || "").trim(),
+      email: (customer.email || "").trim(),
+      address: (customer.address || "").trim(),
+      pincode: (customer.pincode || "").trim(),
+    };
 
-    let savedCustomer = await Customer.findOne({
-      $or: [{ email: customer.email }, { phone: customer.phone }],
-    });
+    let savedCustomerId = null;
+    try {
+      // Find or create customer in Customer master collection (for CRM/counting)
+      let savedCustomer = await Customer.findOne({
+        email: customerSnapshot.email,
+        phone: customerSnapshot.phone,
+      });
 
-    if (!savedCustomer) {
-      savedCustomer = await Customer.create(customer);
+      if (!savedCustomer) {
+        savedCustomer = await Customer.create(customerSnapshot);
+      }
+      if (savedCustomer) {
+        savedCustomerId = savedCustomer._id;
+      }
+    } catch (custErr) {
+      console.warn("⚠️ Customer master upsert handled:", custErr.message);
+      try {
+        const existing = await Customer.findOne({ email: customerSnapshot.email });
+        if (existing) savedCustomerId = existing._id;
+      } catch (findErr) {
+        // ignore
+      }
     }
 
     /* ======================================================
-       2️⃣ STORE ENQUIRY
+       2️⃣ NORMALIZE CART & CALCULATE TOTAL USING OFFER PRICE
     ====================================================== */
+    const normalizedCart = cart.map(item => {
+      const activePrice = parseFloat(item.offerPrice || item.discountPrice || item.price || 0);
+      const qty = parseInt(item.quantity || 1, 10);
+      return {
+        ...item,
+        price: activePrice,
+        offerPrice: activePrice,
+        quantity: qty,
+      };
+    });
+
+    const calculatedItems = normalizedCart.reduce((sum, it) => sum + it.quantity, 0);
+    const calculatedTotal = normalizedCart.reduce((sum, it) => sum + (it.price * it.quantity), 0);
+
+    const finalItems = totalItems || calculatedItems;
+    const finalTotal = totalPrice || calculatedTotal;
 
     const enquiry = await Enquiry.create({
-      customerId: savedCustomer._id,
-      cart,
-      totalItems,
-      totalPrice,
+      customerId: savedCustomerId,
+      customer: customerSnapshot, // ⭐️ Per-enquiry immutable snapshot!
+      cart: normalizedCart,
+      totalItems: finalItems,
+      totalPrice: finalTotal,
       agentId: customer.agentId || "",
     });
 
@@ -74,9 +129,9 @@ router.post("/", async (req, res) => {
     try {
       await sendEnquiryEmails({
         customer,
-        cart,
-        totalItems,
-        totalPrice,
+        cart: normalizedCart,
+        totalItems: finalItems,
+        totalPrice: finalTotal,
         agentId: customer.agentId || "",
       });
     } catch (emailErr) {
@@ -115,36 +170,39 @@ router.get("/", async (req, res) => {
     }
 
     // Customer search
-    let customerFilter = {};
     if (search) {
-      customerFilter = {
+      const matchingCustomerIds = await Customer.find({
         $or: [
           { name: { $regex: search, $options: "i" } },
           { email: { $regex: search, $options: "i" } },
           { phone: { $regex: search, $options: "i" } },
         ],
-      };
+      }).distinct("_id");
+
+      query.$or = [
+        { "customer.name": { $regex: search, $options: "i" } },
+        { "customer.email": { $regex: search, $options: "i" } },
+        { "customer.phone": { $regex: search, $options: "i" } },
+        { customerId: { $in: matchingCustomerIds } },
+      ];
     }
 
+    const total = await Enquiry.countDocuments(query);
+
     const enquiries = await Enquiry.find(query)
-      .populate({
-        path: "customerId",
-        match: customerFilter,
-      })
+      .populate("customerId")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(Number(limit));
 
-    // Remove null populated customers (after search)
-    const filtered = enquiries.filter(e => e.customerId);
-
-    const total = await Enquiry.countDocuments(query);
+    const formatted = enquiries.map(formatEnquiryResponse);
 
     res.json({
       success: true,
-      data: filtered,
+      data: formatted,
       totalPages: Math.ceil(total / limit),
       currentPage: Number(page),
+      totalOrders: total,
     });
   } catch (err) {
     console.error("❌ Fetch Enquiries Error:", err);
@@ -161,7 +219,7 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    res.json({ success: true, data: enquiry });
+    res.json({ success: true, data: formatEnquiryResponse(enquiry) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -214,6 +272,36 @@ router.patch("/bulk-remarks", async (req, res) => {
       message: `Successfully updated remarks for ${result.modifiedCount} orders`,
     });
   } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// UPDATE ORDER ADDRESS
+router.patch("/:id/address", async (req, res) => {
+  try {
+    const { address, pincode } = req.body;
+    const enquiry = await Enquiry.findById(req.params.id);
+
+    if (!enquiry) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    if (!enquiry.customer) {
+      enquiry.customer = {};
+    }
+    if (address !== undefined) enquiry.customer.address = address;
+    if (pincode !== undefined) enquiry.customer.pincode = pincode;
+
+    await enquiry.save();
+
+    if (enquiry.customerId) {
+      await Customer.findByIdAndUpdate(enquiry.customerId, { address, pincode });
+    }
+
+    const populatedEnquiry = await Enquiry.findById(req.params.id).populate("customerId");
+    res.json({ success: true, data: formatEnquiryResponse(populatedEnquiry) });
+  } catch (err) {
+    console.error("❌ Update Order Address Error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });

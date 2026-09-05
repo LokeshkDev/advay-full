@@ -5,7 +5,14 @@ const enquirySchema = new mongoose.Schema(
         customerId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Customer",
-            required: true,
+            required: false,
+        },
+        customer: {
+            name: { type: String, default: "" },
+            phone: { type: String, default: "" },
+            email: { type: String, default: "" },
+            address: { type: String, default: "" },
+            pincode: { type: String, default: "" },
         },
         cart: { type: Array, required: true },
         totalItems: Number,

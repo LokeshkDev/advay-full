@@ -141,8 +141,8 @@ export default function Dashboard() {
                       <tr key={o._id}>
                         <td className="fw-semibold text-primary">{o._id?.slice(-6).toUpperCase()}</td>
                         <td>
-                          <div>{o.customerId?.name}</div>
-                          <small className="text-muted">{o.customerId?.phone}</small>
+                          <div>{o.customer?.name || o.customerId?.name || 'Customer'}</div>
+                          <small className="text-muted">{o.customer?.phone || o.customerId?.phone || '—'}</small>
                         </td>
                         <td className="fw-bold">₹{o.totalPrice?.toLocaleString()}</td>
                         <td>

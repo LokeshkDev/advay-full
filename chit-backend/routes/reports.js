@@ -110,10 +110,21 @@ router.get("/dashboard", async (req, res) => {
     ]);
     const totalOrderAmount = totalOrderAmountResult[0]?.total || 0;
 
-    const latestOrders = await Enquiry.find()
+    const latestOrdersRaw = await Enquiry.find()
       .populate("customerId")
       .sort({ createdAt: -1 })
       .limit(5);
+
+    const latestOrders = latestOrdersRaw.map((e) => {
+      const doc = e.toObject();
+      if (doc.customer && (doc.customer.name || doc.customer.phone || doc.customer.email)) {
+        doc.customerId = {
+          _id: doc.customerId?._id || doc.customerId || doc._id,
+          ...doc.customer,
+        };
+      }
+      return doc;
+    });
 
     res.json({
       totalPlans,

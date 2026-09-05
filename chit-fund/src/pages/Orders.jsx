@@ -5,6 +5,11 @@ import jsPDF from "jspdf";
 import "jspdf-autotable";
 import logo from "../assets/Advay-Traders-Logo.png";
 
+const getCustomer = (order) =>
+    (order?.customer?.name || order?.customer?.phone || order?.customer?.email)
+        ? order.customer
+        : (order?.customerId || {});
+
 export default function Orders() {
     const [orders, setOrders] = useState([]);
     const [search, setSearch] = useState("");
@@ -128,17 +133,18 @@ export default function Orders() {
         doc.setTextColor(goldColor[0], goldColor[1], goldColor[2]);
         doc.text("CUSTOMER DETAILS", 18, 51);
 
+        const pdfCustomer = getCustomer(order);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(10);
         doc.setTextColor(darkTextColor[0], darkTextColor[1], darkTextColor[2]);
-        doc.text(order.customerId?.name || "Customer", 18, 57);
+        doc.text(pdfCustomer.name || "Customer", 18, 57);
 
         doc.setFont("helvetica", "normal");
         doc.setFontSize(9);
         doc.setTextColor(darkTextColor[0], darkTextColor[1], darkTextColor[2]);
-        doc.text(`Phone: ${order.customerId?.phone || "N/A"}`, 18, 62);
-        doc.text(`Email: ${order.customerId?.email || "N/A"}`, 18, 67);
-        const addressText = `${order.customerId?.address || "N/A"}${order.customerId?.pincode ? ` - ${order.customerId?.pincode}` : ""}`;
+        doc.text(`Phone: ${pdfCustomer.phone || "N/A"}`, 18, 62);
+        doc.text(`Email: ${pdfCustomer.email || "N/A"}`, 18, 67);
+        const addressText = `${pdfCustomer.address || "N/A"}${pdfCustomer.pincode ? ` - ${pdfCustomer.pincode}` : ""}`;
         const splitAddress = doc.splitTextToSize(`Address: ${addressText}`, 80);
         doc.text(splitAddress, 18, 72);
 
@@ -280,7 +286,7 @@ export default function Orders() {
         doc.setFillColor(goldColor[0], goldColor[1], goldColor[2]);
         doc.rect(0, 285, 210, 2, "F");
 
-        const fileName = `${order.customerId?.name || "Customer"}_Order_${formattedId}.pdf`;
+        const fileName = `${pdfCustomer.name || "Customer"}_Order_${formattedId}.pdf`;
         doc.save(fileName);
     }
 
@@ -363,22 +369,38 @@ export default function Orders() {
 
     const handleEditAddress = () => {
         setEditingAddress(true);
+        const cust = getCustomer(selectedOrder);
         setAddressForm({
-            address: selectedOrder.customerId?.address || "",
-            pincode: selectedOrder.customerId?.pincode || ""
+            address: cust.address || "",
+            pincode: cust.pincode || ""
         });
     };
 
     const handleSaveAddress = async () => {
         try {
-            console.log(`[FRONTEND] Updating customer: ${selectedOrder.customerId?._id}`, addressForm);
-            await api.patch(`/customers/${selectedOrder.customerId?._id}`, addressForm);
+            console.log(`[FRONTEND] Updating order address: ${selectedOrder._id}`, addressForm);
+            let res;
+            try {
+                res = await api.patch(`/enquiry/${selectedOrder._id}/address`, addressForm);
+            } catch (patchErr) {
+                if (selectedOrder.customerId?._id) {
+                    res = await api.patch(`/customers/${selectedOrder.customerId._id}`, addressForm);
+                } else {
+                    throw patchErr;
+                }
+            }
+
             setEditingAddress(false);
             fetchOrders();
             // Update the selected order with new data
-            const updatedOrder = { ...selectedOrder };
-            updatedOrder.customerId.address = addressForm.address;
-            updatedOrder.customerId.pincode = addressForm.pincode;
+            const updatedOrder = res?.data?.data || { ...selectedOrder };
+            if (!updatedOrder.customer) updatedOrder.customer = {};
+            updatedOrder.customer.address = addressForm.address;
+            updatedOrder.customer.pincode = addressForm.pincode;
+            if (updatedOrder.customerId && typeof updatedOrder.customerId === "object") {
+                updatedOrder.customerId.address = addressForm.address;
+                updatedOrder.customerId.pincode = addressForm.pincode;
+            }
             setSelectedOrder(updatedOrder);
             alert("Address updated successfully");
         } catch (err) {
@@ -470,7 +492,7 @@ export default function Orders() {
                             </td>
                             <td>{(page - 1) * 10 + index + 1}</td>
                             <td className="fw-semibold">{formatOrderID(o)}</td>
-                            <td>{o.customerId?.name}</td>
+                            <td>{getCustomer(o).name || "—"}</td>
                             <td>{o.agentId ? <span className="badge bg-dark">{o.agentId}</span> : <span className="text-muted small">—</span>}</td>
                             <td>₹{o.totalPrice}</td>
                             <td>
@@ -595,9 +617,9 @@ export default function Orders() {
                                 <>
                                     <div className="d-flex justify-content-between align-items-start mb-3">
                                         <div className="flex-grow-1">
-                                            <p><strong>Name:</strong> {selectedOrder.customerId?.name}</p>
-                                            <p><strong>Email:</strong> {selectedOrder.customerId?.email}</p>
-                                            <p><strong>Phone:</strong> {selectedOrder.customerId?.phone}</p>
+                                            <p><strong>Name:</strong> {getCustomer(selectedOrder).name || "N/A"}</p>
+                                            <p><strong>Email:</strong> {getCustomer(selectedOrder).email || "N/A"}</p>
+                                            <p><strong>Phone:</strong> {getCustomer(selectedOrder).phone || "N/A"}</p>
                                             <p><strong>Agent ID:</strong> {selectedOrder.agentId ? <span className="badge bg-dark">{selectedOrder.agentId}</span> : <span className="text-muted">Not provided</span>}</p>
                                             <p><strong>Date:</strong> {new Date(selectedOrder.createdAt).toLocaleString()}</p>
 
@@ -630,8 +652,8 @@ export default function Orders() {
                                                 </div>
                                             ) : (
                                                 <div>
-                                                    <p><strong>Address:</strong> {selectedOrder.customerId?.address || 'N/A'}</p>
-                                                    <p><strong>Pincode:</strong> {selectedOrder.customerId?.pincode || 'N/A'}</p>
+                                                    <p><strong>Address:</strong> {getCustomer(selectedOrder).address || 'N/A'}</p>
+                                                    <p><strong>Pincode:</strong> {getCustomer(selectedOrder).pincode || 'N/A'}</p>
                                                     <button className="btn btn-outline-primary btn-sm" onClick={handleEditAddress}>
                                                         <i className="bi bi-pencil me-1"></i>Edit Address
                                                     </button>
