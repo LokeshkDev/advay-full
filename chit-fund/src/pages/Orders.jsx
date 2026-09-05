@@ -181,17 +181,22 @@ export default function Orders() {
         doc.text("Cash / Online", 142, 81);
 
         // 3. Items Table
-        const tableBody = (order.cart || []).map((item, index) => [
-            index + 1,
-            item.name,
-            item.quantity,
-            `Rs. ${Number(item.price).toLocaleString("en-IN")}`,
-            `Rs. ${(Number(item.price) * Number(item.quantity)).toLocaleString("en-IN")}`
-        ]);
+        const tableBody = (order.cart || []).map((item, index) => {
+            const offerPrice = Number(item.offerPrice || item.discountPrice || item.price || 0);
+            const qty = Number(item.quantity || 1);
+            const subtotal = offerPrice * qty;
+            return [
+                index + 1,
+                item.name,
+                qty,
+                `Rs. ${offerPrice.toLocaleString("en-IN")}`,
+                `Rs. ${subtotal.toLocaleString("en-IN")}`
+            ];
+        });
 
         doc.autoTable({
             startY: 92,
-            head: [["#", "Item Description", "Qty", "Price", "Subtotal"]],
+            head: [["#", "Item Description", "Qty", "Offer Price", "Subtotal"]],
             body: tableBody,
             theme: "grid",
             headStyles: {
@@ -225,6 +230,11 @@ export default function Orders() {
         // 4. Totals & Summary
         const finalY = doc.lastAutoTable.finalY + 6;
         const totalItems = (order.cart || []).reduce((sum, it) => sum + Number(it.quantity || 0), 0);
+        const calculatedGrandTotal = (order.cart || []).reduce((sum, it) => {
+            const pr = Number(it.offerPrice || it.discountPrice || it.price || 0);
+            return sum + (pr * Number(it.quantity || 1));
+        }, 0);
+        const finalGrandTotal = Number(order.totalPrice) || calculatedGrandTotal;
 
         // Total Box on Right
         doc.setFillColor(248, 250, 252);
@@ -245,7 +255,7 @@ export default function Orders() {
         doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
         doc.text("Grand Total:", 125, finalY + 18);
         doc.setTextColor(goldColor[0], goldColor[1], goldColor[2]);
-        doc.text(`Rs. ${Number(order.totalPrice || 0).toLocaleString("en-IN")}`, 155, finalY + 18);
+        doc.text(`Rs. ${finalGrandTotal.toLocaleString("en-IN")}`, 155, finalY + 18);
 
         // 5. Signature & Thank You Note
         const bottomY = Math.max(finalY + 36, 250);
@@ -637,28 +647,50 @@ export default function Orders() {
                                         </button>
                                     </div>
 
-                                    <table className="table mt-3">
-                                        <thead>
-                                            <tr>
-                                                <th>Item</th>
-                                                <th>Qty</th>
-                                                <th>Price</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {selectedOrder.cart?.map((item, i) => (
-                                                <tr key={i}>
-                                                    <td>{item.name}</td>
-                                                    <td>{item.quantity}</td>
-                                                    <td>₹{item.price}</td>
+                                    <div className="table-responsive mt-3">
+                                        <table className="table table-bordered align-middle mb-0">
+                                            <thead className="table-light text-secondary small text-uppercase">
+                                                <tr>
+                                                    <th style={{ width: "45px" }}>#</th>
+                                                    <th>Item Description</th>
+                                                    <th className="text-center" style={{ width: "70px" }}>Qty</th>
+                                                    <th className="text-end" style={{ width: "130px" }}>Offer Price</th>
+                                                    <th className="text-end" style={{ width: "140px" }}>Subtotal</th>
                                                 </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-
-                                    <h6 className="text-end">
-                                        Total: ₹{selectedOrder.totalPrice}
-                                    </h6>
+                                            </thead>
+                                            <tbody>
+                                                {selectedOrder.cart?.map((item, i) => {
+                                                    const unitPrice = Number(item.offerPrice || item.discountPrice || item.price || 0);
+                                                    const qty = Number(item.quantity || 1);
+                                                    const subtotal = unitPrice * qty;
+                                                    return (
+                                                        <tr key={i}>
+                                                            <td>{i + 1}</td>
+                                                            <td className="fw-semibold">{item.name}</td>
+                                                            <td className="text-center">{qty}</td>
+                                                            <td className="text-end">₹{unitPrice.toLocaleString("en-IN")}</td>
+                                                            <td className="text-end fw-bold text-success">₹{subtotal.toLocaleString("en-IN")}</td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                            <tfoot className="table-light">
+                                                <tr>
+                                                    <td colSpan="4" className="text-end fw-bold">Total Amount:</td>
+                                                    <td className="text-end fw-bold fs-6 text-primary">
+                                                        ₹{(
+                                                            Number(selectedOrder.totalPrice) ||
+                                                            selectedOrder.cart?.reduce((sum, it) => {
+                                                                const pr = Number(it.offerPrice || it.discountPrice || it.price || 0);
+                                                                return sum + (pr * Number(it.quantity || 1));
+                                                            }, 0) ||
+                                                            0
+                                                        ).toLocaleString("en-IN")}
+                                                    </td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
                                 </>
                             )}
                         </div>

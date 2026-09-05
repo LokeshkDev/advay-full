@@ -9,7 +9,7 @@ const getImageUrl = (imagePath) => {
     return `${BACKEND_HOST}/${cleanPath}`;
 };
 
-export default function Products() {
+export default function Products() {    
     const [products, setProducts] = useState([]);
     const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(false);
